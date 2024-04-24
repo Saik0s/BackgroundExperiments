@@ -4,6 +4,7 @@
 
 import ActivityKit
 import BackgroundTasks
+import Common
 import Foundation
 import UIKit
 import UniformTypeIdentifiers
@@ -12,28 +13,50 @@ import UniformTypeIdentifiers
 class BackgroundTaskManager {
   static let shared = BackgroundTaskManager()
 
+  var notificationManager = NotificationManager()
+
   var isTaskRunning = false
-  var startTime = Date()
-  let taskDuration = 300.0 // 5 minutes
-  var elapsedTime = 0.0
+  let taskDuration = 600.0 // 10 minutes
+
+  var startTime: Date {
+    didSet {
+      UserDefaults.standard.set(startTime.timeIntervalSince1970, forKey: "startTime")
+    }
+  }
+
+  var elapsedTime: Double {
+    didSet {
+      UserDefaults.standard.set(elapsedTime, forKey: "elapsedTime")
+    }
+  }
+
   var progress: Double { elapsedTime / taskDuration }
 
   private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
 
-  private let fileURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!.appendingPathComponent("TaskLog.txt")
+  let fileURL = URL.documentsDirectory.appendingPathComponent("TaskLog.txt")
+  private let processingTaskIdentifier = "me.igortarasenko.BackgroundExperimentsApp"
+
+  init() {
+    startTime = Date(timeIntervalSince1970: UserDefaults.standard.double(forKey: "startTime"))
+    elapsedTime = UserDefaults.standard.double(forKey: "elapsedTime")
+  }
 
   func startTask() {
-    print("Task started")
+    logs.log("Task started")
     isTaskRunning = true
-    startTime = Date()
-    requestBackgroundExecution()
+    notificationManager.startNotificationsLoop()
     performHeavyTask()
   }
 
   func resetTask() {
-    print("Task reset")
+    logs.log("Task reset")
     isTaskRunning = false
+    startTime = Date()
+    elapsedTime = 0.0
     endBackgroundExecution()
+    cancelScheduledBackgroundProcessingTask()
+    try? FileManager.default.removeItem(at: fileURL)
   }
 
   func requestBackgroundExecution() {
@@ -42,30 +65,73 @@ class BackgroundTaskManager {
     }
   }
 
-  private func endBackgroundExecution() {
-    print("Ending background execution")
+  func endBackgroundExecution() {
+    logs.log("Ending background execution")
     if backgroundTaskID != .invalid {
       UIApplication.shared.endBackgroundTask(backgroundTaskID)
       backgroundTaskID = .invalid
     }
   }
 
+  func registerForProcessingTask() {
+    logs.log("Registering for processing task")
+    BGTaskScheduler.shared.register(forTaskWithIdentifier: processingTaskIdentifier, using: nil) { task in
+      guard let task = task as? BGProcessingTask else { return }
+      self.handleBGProcessingTask(bgTask: task)
+    }
+  }
+
+  func scheduleBackgroundProcessingTask() {
+    logs.log("Scheduling background processing task")
+    let request = BGProcessingTaskRequest(identifier: processingTaskIdentifier)
+    request.requiresNetworkConnectivity = false
+    request.requiresExternalPower = false
+    request.earliestBeginDate = Date(timeIntervalSinceNow: 1)
+
+    do {
+      try BGTaskScheduler.shared.submit(request)
+    } catch {
+      logs.log("Could not schedule background task: \(error)")
+    }
+  }
+
+  func cancelScheduledBackgroundProcessingTask() {
+    logs.log("Cancelling scheduled background processing task")
+    BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: processingTaskIdentifier)
+  }
+
+  private func handleBGProcessingTask(bgTask: BGProcessingTask) {
+    logs.log("Handling background processing task")
+    let task = Task {
+      startTask()
+      try await Task.sleep(for: .seconds(1))
+      while isTaskRunning {
+        try await Task.sleep(for: .seconds(1))
+      }
+    }
+
+    bgTask.expirationHandler = {
+      logs.log("Background processing task expired")
+      task.cancel()
+    }
+  }
+
   private func performHeavyTask() {
-    print("Performing heavy task")
+    logs.log("Performing heavy task")
     startTime = Date()
     performIteration()
   }
 
   private func performIteration() {
     guard isTaskRunning else {
-      print("Task is not running")
+      logs.log("Task is not running")
       return
     }
 
     guard elapsedTime < taskDuration else {
-      print("Elapsed time: \(elapsedTime)")
-      print("Task duration: \(taskDuration)")
-      print("Task is going to reset")
+      logs.log("Elapsed time: \(elapsedTime)")
+      logs.log("Task duration: \(taskDuration)")
+      logs.log("Task is going to reset")
       resetTask()
       return
     }
@@ -79,7 +145,7 @@ class BackgroundTaskManager {
     do {
       existingContent = try String(contentsOf: fileURL, encoding: .utf8)
     } catch {
-      print("Failed to read existing file contents: \(error.localizedDescription)")
+      logs.log("Failed to read existing file contents: \(error.localizedDescription)")
     }
 
     let currentTime = Date()
@@ -89,14 +155,14 @@ class BackgroundTaskManager {
     do {
       try newContent.write(to: fileURL, atomically: true, encoding: .utf8)
     } catch {
-      print("Failed to write to file: \(error.localizedDescription)")
+      logs.log("Failed to write to file: \(error.localizedDescription)")
     }
 
     DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
       self.performIteration()
     }
 
-    print("Elapsed time: \(elapsedTime)")
+    logs.log("Elapsed time: \(elapsedTime)")
 
     ActivityManager.shared.updateActivity(progress: progress, state: .running)
   }

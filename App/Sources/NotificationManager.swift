@@ -2,63 +2,58 @@
 // NotificationManager.swift
 //
 
+import Common
 import Foundation
 import UserNotifications
 
 @Observable
 class NotificationManager {
-  private var notificationTimer: Timer?
-
-  var logs: [String] = []
-
-  private let date = Date()
+  func startNotificationsLoop() {
+    Task {
+      await scheduleNotification()
+    }
+  }
 
   func scheduleNotification() async {
-    print("Going to schedule notification")
-    logs.append("Going to schedule notification")
+    logs.log("Going to schedule notification")
 
     let settings = await UNUserNotificationCenter.current().notificationSettings()
     if settings.authorizationStatus != .authorized {
-      logs.append("Notifications not determined, requesting authorization")
+      logs.log("Notifications not determined, requesting authorization")
       do {
         try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])
       } catch {
-        logs.append("Error requesting notification authorization: \(error.localizedDescription)")
+        logs.log("Error requesting notification authorization: \(error.localizedDescription)")
         return
       }
     }
 
     let content = UNMutableNotificationContent()
     content.title = "App Terminated"
-    content.body = "Total run time: \(date.distance(to: Date())) seconds"
+    content.body = "Total elapsed time: \(BackgroundTaskManager.shared.elapsedTime) seconds"
     content.sound = UNNotificationSound.default
 
-    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 10, repeats: false)
+    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 3, repeats: false)
     let request = UNNotificationRequest(identifier: "TestNotification", content: content, trigger: trigger)
 
     do {
       try await UNUserNotificationCenter.current().add(request)
-      print("Notification scheduled successfully")
-      logs.append("Notification scheduled successfully")
+      logs.log("Notification scheduled successfully")
     } catch {
-      print("Error scheduling notification: \(error.localizedDescription)")
-      logs.append("Error scheduling notification: \(error.localizedDescription)")
+      logs.log("Error scheduling notification: \(error.localizedDescription)")
     }
 
     do {
-      try await Task.sleep(for: .seconds(9))
-      print("Timer hit")
+      try await Task.sleep(for: .seconds(2))
       cancelNotification()
       await scheduleNotification()
     } catch {
-      print("Error sleeping: \(error.localizedDescription)")
-      logs.append("Error sleeping: \(error.localizedDescription)")
+      logs.log("Error sleeping: \(error.localizedDescription)")
     }
   }
 
   func cancelNotification() {
     UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["TestNotification"])
-    print("Notification cancelled")
-    logs.append("Notification cancelled")
+    logs.log("Notification cancelled")
   }
 }

@@ -3,72 +3,115 @@
 //
 
 import ActivityKit
+import Common
 import SwiftUI
 
 struct ContentView: View {
-  @State private var notificationManager = NotificationManager()
+//  @State private var notificationManager = NotificationManager()
   @State private var backgroundTaskManager = BackgroundTaskManager.shared
-
-  @State var activityManager = ActivityManager()
-  @State var activeIslands: Int = 0
+  @State private var activityManager = ActivityManager()
+  @State private var audioPlaybackManager = AudioPlaybackManager()
+  @State var showLogs = false
 
   var body: some View {
     VStack {
-      Text(backgroundTaskManager.isTaskRunning ? "Task is running" : "Task is not running")
-        .padding()
+      VStack(alignment: .leading) {
+        Label {
+          Text(backgroundTaskManager.isTaskRunning ? "Task is running" : "Task is not running")
+            .font(.headline)
+        } icon: {
+          Image(systemName: backgroundTaskManager.isTaskRunning ? "bolt.fill" : "bolt.slash.fill")
+            .foregroundColor(backgroundTaskManager.isTaskRunning ? .green : .red)
+        }
 
-      Text("\(backgroundTaskManager.elapsedTime) seconds elapsed")
-      Text("\(backgroundTaskManager.progress * 100, specifier: "%.0f")% complete")
+        Label {
+          Text("\(backgroundTaskManager.elapsedTime) seconds elapsed")
+            .font(.subheadline)
+        } icon: {
+          Image(systemName: "clock")
+            .foregroundColor(.blue)
+        }
 
-      Button(action: {
+        Label {
+          Text("\(backgroundTaskManager.progress * 100, specifier: "%.0f")% complete")
+            .font(.subheadline)
+        } icon: {
+          Image(systemName: "chart.bar.fill")
+            .foregroundColor(.orange)
+        }
+      }
+
+      Button(activityManager.isActivityRunning ? "End Activity" : "Start Activity") {
+        if activityManager.isActivityRunning {
+          activityManager.endActivity()
+        } else {
+          activityManager.startActivity()
+        }
+      }
+
+      Button(backgroundTaskManager.isTaskRunning ? "Reset Task..." : "Start Task") {
         if backgroundTaskManager.isTaskRunning {
           backgroundTaskManager.resetTask()
-          ActivityManager.shared.endActivity()
         } else {
           backgroundTaskManager.startTask()
-          ActivityManager.shared.startActivity()
-          UIControl().sendAction(#selector(URLSessionTask.suspend), to: UIApplication.shared, for: nil)
+          // UIControl().sendAction(#selector(URLSessionTask.suspend), to: UIApplication.shared, for: nil)
         }
-      }) {
-        Text(backgroundTaskManager.isTaskRunning ? "Reset Task" : "Start Task")
-          .padding()
-          .background(Color.blue)
-          .foregroundColor(.white)
-          .cornerRadius(10)
       }
 
-      Button(action: {
-        Task {
-          await notificationManager.scheduleNotification()
+      // Button(action: {
+      //   Task {
+      //     await notificationManager.scheduleNotification()
+      //   }
+      // }) {
+      //   Text("Schedule Notification")
+      // }
+
+      Button(audioPlaybackManager.isPlaying ? "Stop Playing..." : "Start Playing") {
+        if audioPlaybackManager.isPlaying {
+          audioPlaybackManager.stopPlaying()
+        } else {
+          audioPlaybackManager.startPlaying()
         }
-      }) {
-        Text("Schedule Notification")
-          .padding()
-          .background(Color.green)
-          .foregroundColor(.white)
-          .cornerRadius(10)
       }
 
-      ScrollView {
-        VStack(alignment: .leading, spacing: 0) {
-          ForEach(Array(notificationManager.logs.enumerated()), id: \.offset) { _, value in
-            Text(value)
-              .font(.footnote)
-          }
+      HStack {
+        Button("Show Logs") {
+          showLogs.toggle()
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        Button("Clear Logs") {
+          logs.cleanupLogs()
+        }
       }
-      .frame(height: 200)
-      .background(Color(.secondarySystemBackground))
-      .clipShape(RoundedRectangle(cornerRadius: 10))
-      .padding(.horizontal)
+
+      HStack {
+        ShareLink("Share app logs", item: Logs.url)
+        ShareLink("Share task logs", item: backgroundTaskManager.fileURL)
+      }
     }
+    .buttonStyle(.borderedProminent)
     .frame(maxHeight: .infinity)
     .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
       backgroundTaskManager.requestBackgroundExecution()
+      backgroundTaskManager.scheduleBackgroundProcessingTask()
     }
     .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
-      backgroundTaskManager.isTaskRunning = backgroundTaskManager.isTaskRunning
+      backgroundTaskManager.endBackgroundExecution()
+      backgroundTaskManager.cancelScheduledBackgroundProcessingTask()
+    }
+    .sheet(isPresented: $showLogs) {
+      ScrollView {
+        LazyVStack(spacing: 0) {
+          ForEach(Array(logs.logs.enumerated()), id: \.offset) { offset, value in
+            Text(value)
+              .font(.footnote)
+              .multilineTextAlignment(.leading)
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .padding(2)
+              .background(Color(offset % 2 == 0 ? .secondarySystemBackground : .systemBackground))
+          }
+        }
+      }
+      .presentationDetents([.medium, .large])
     }
   }
 }

@@ -3,15 +3,22 @@
 //
 
 import AVFoundation
+import Common
 
+@Observable
 class AudioPlaybackManager {
-  var audioPlayer: AVAudioPlayer?
+  var isPlaying = false
 
-  func startPlayingSilence() {
-    let silenceURL = Bundle.main.url(forResource: "silence", withExtension: "mp3")!
+  private var audioPlayer: AVAudioPlayer?
+
+  init() {}
+
+  func startPlaying() {
+    let silenceURL = CommonResources.bundle.url(forResource: "jfk", withExtension: "wav")!
     do {
       audioPlayer = try AVAudioPlayer(contentsOf: silenceURL)
       audioPlayer?.play()
+      isPlaying = true
     } catch {
       print("Failed to play silence: \(error.localizedDescription)")
     }
@@ -19,5 +26,6 @@ class AudioPlaybackManager {
 
   func stopPlaying() {
     audioPlayer?.stop()
+    isPlaying = false
   }
 }

@@ -11,6 +11,10 @@ import Foundation
 class ActivityManager {
   static let shared = ActivityManager()
 
+  var isActivityRunning: Bool {
+    activity != nil
+  }
+
   private var activity: Activity<ProgressAttributes>?
 
   func startActivity() {
